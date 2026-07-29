@@ -1,6 +1,6 @@
-FROM php:8.2-fpm
+FROM php:8.2-cli
 
-# Install system dependencies including libzip-dev
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     libpng-dev \
     libjpeg-dev \
@@ -8,28 +8,31 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     zip unzip git curl \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql gd zip
+    && docker-php-ext-install pdo pdo_mysql gd zip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# Prevent Composer memory limit issues
-ENV COMPOSER_MEMORY_LIMIT=-1
+# Step 1: Copy only dependency files first (Leverages Docker Caching)
+COPY composer.json composer.lock ./
 
+# Step 2: Install dependencies with low-memory footprint flags
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-scripts
+
+# Step 3: Copy remaining application code
 COPY . .
 
-# Run composer install with no-scripts first to save RAM
-RUN composer install --no-dev --optimize-autoloader --no-interaction
-
-# Create storage link for uploaded images
+# Step 4: Run autoloader dump and storage link
+RUN composer dump-autoload --optimize --no-dev
 RUN php artisan storage:link || true
 
-# Set storage permissions
+# Set permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
-# Bind to Render's dynamic PORT (defaults to 8080 if not set)
+# Bind to Render's dynamic PORT
 ENV PORT=8080
 EXPOSE ${PORT}
 
