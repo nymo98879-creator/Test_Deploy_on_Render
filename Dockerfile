@@ -1,32 +1,36 @@
 FROM php:8.2-fpm
 
-# Install system dependencies & PHP extensions needed for Laravel & image handling
+# Install system dependencies including libzip-dev
 RUN apt-get update && apt-get install -y \
     libpng-dev \
     libjpeg-dev \
     libfreetype6-dev \
+    libzip-dev \
     zip unzip git curl \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql gd
+    && docker-php-ext-install pdo pdo_mysql gd zip
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 
-# Copy project files
+# Prevent Composer memory limit issues
+ENV COMPOSER_MEMORY_LIMIT=-1
+
 COPY . .
 
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader
+# Run composer install with no-scripts first to save RAM
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Create public storage link for uploaded images
-RUN php artisan storage:link
+# Create storage link for uploaded images
+RUN php artisan storage:link || true
 
-# Set proper permissions for Laravel
+# Set storage permissions
 RUN chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
 
-EXPOSE 80
+# Bind to Render's dynamic PORT (defaults to 8080 if not set)
+ENV PORT=8080
+EXPOSE ${PORT}
 
-# Run migrations and start artisan serve
-CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=80
+CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=${PORT}
